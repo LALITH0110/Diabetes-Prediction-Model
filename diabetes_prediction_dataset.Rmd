@@ -1,0 +1,1191 @@
+---
+title: "diabetes_prediction_dataset"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+author: ""
+date: "`r Sys.Date()`"
+---
+
+## Feature Description
+
+### `gender`: Biological Sex  
+- **male**: 41%  
+- **female**: 59%  
+- **other**: 0%  
+
+Gender may influence an individual's susceptibility to diabetes.
+
+---
+
+### `age`: Age  
+Age is an important risk factor for diabetes — generally, older individuals have a higher likelihood of developing it.  
+The age range in this dataset is **0 to 80 years**.
+
+---
+
+### `hypertension`: Presence of Hypertension  
+- `0`: No hypertension  
+- `1`: Has hypertension  
+
+Hypertension is a known comorbidity and risk factor for diabetes.
+
+---
+
+### `heart_disease`: Presence of Heart Disease  
+- `0`: No heart disease  
+- `1`: Has heart disease  
+
+Heart disease is strongly associated with increased diabetes risk.
+
+---
+
+### `smoking_history`: Smoking Behavior  
+Smoking is a risk factor for diabetes and can worsen its complications. Categories include:
+
+- `not current`: Previously smoked but not currently  
+- `former`: Former smoker, now quit  
+- `No Info`: No information available  
+- `current`: Currently smoking  
+- `never`: Never smoked  
+- `ever`: Smoked at some point in the past
+
+---
+
+### `bmi`: Body Mass Index  
+BMI is calculated from height and weight to assess body fat. Range: **10.16 to 71.55**
+
+- BMI < 18.5: Underweight  
+- 18.5 ≤ BMI < 24.9: Normal  
+- 25 ≤ BMI < 29.9: Overweight  
+- BMI ≥ 30: Obese
+
+---
+
+### `HbA1c_level`: Hemoglobin A1c  
+HbA1c reflects average blood glucose levels over the past **2–3 months**.  
+Levels above **6.5%** typically indicate diabetes risk.
+
+---
+
+### `blood_glucose_level`: Blood Glucose Level  
+This refers to the concentration of glucose in the blood at a specific time.  
+Higher glucose levels are a key indicator of diabetes.
+
+---
+
+### `diabetes`: Target Variable (Diabetes Status)  
+- `0`: Does not have diabetes  
+- `1`: Has diabetes
+
+Objective1:
+Find out which features (such as age, bmi, gender, etc.) may have a significant statistical or pattern relationship with diabetes (values of 0 or 1)
+
+---
+
+Read the Diabetes prediction dataset and view the first five rows of the diabetes_prediction_dataset:
+
+
+```{r chunk1}
+diabetes_dataset = read.csv("./diabetes_prediction_dataset.csv")
+head(diabetes_dataset, 5)
+```
+```{r chunk1.1}
+# Check column names and whether they need to be renamed
+colnames(diabetes_dataset)
+
+# Replace spaces (if any)
+# colnames(diabetes_dataset) <- gsub(" ", "_", colnames(diabetes_dataset))
+```
+Check if there are exact duplicate rows???
+This dataset does not contain unique identifiers, so we do not check for duplicate rows, since each duplicate row is a failed entry.
+
+
+
+
+View dataset information
+```{r chunk2}
+str(diabetes_dataset)
+summary(diabetes_dataset)
+```
+
+
+
+
+Check the values of gender and smoking_history. Determine whether to convert to dummy variables (dummy/one-hot) or label encoding.
+```{r chunk2.1}
+# View all unique values for gender and smoking_history
+unique(diabetes_dataset$gender)
+unique(diabetes_dataset$smoking_history)
+
+# View frequency distribution in detail
+table(diabetes_dataset$gender)
+table(diabetes_dataset$smoking_history)
+```
+
+
+Check if there are missing values in the dataset
+```{r chunk3}
+anyNA(diabetes_dataset)         # any missing values
+colSums(is.na(diabetes_dataset))  # num of missing values in each column
+```
+This data set does not have missing values, so there is no need to fill missing values
+
+
+```{r chunk2.2}
+diabetes_dataset_factor <- diabetes_dataset
+# convert gender to factor
+diabetes_dataset_factor$gender <- factor(diabetes_dataset_factor$gender)
+
+# dummy variables
+gender_dummies <- model.matrix(~ gender - 1, data = diabetes_dataset_factor)
+
+
+# add it back
+diabetes_dataset_factor <- cbind(diabetes_dataset_factor, gender_dummies)
+
+head(diabetes_dataset_factor, 5)
+```
+```{r chunk2.3}
+library(dplyr)
+
+# Merge smoking_history categories into more logical groups
+diabetes_dataset_factor$smoking_status_grouped <- dplyr::case_when(
+  diabetes_dataset_factor$smoking_history == "never" ~ "never",
+  diabetes_dataset_factor$smoking_history == "current" ~ "current",
+  diabetes_dataset_factor$smoking_history %in% c("former", "not current", "ever") ~ "former",
+  TRUE ~ "unknown"
+)
+
+# convert gender to factor
+diabetes_dataset_factor$smoking_status_grouped <- factor(diabetes_dataset_factor$smoking_status_grouped)
+
+# one-hot encoding
+smoking_dummies <- model.matrix(~ smoking_status_grouped - 1, data = diabetes_dataset_factor)
+
+# add it back
+diabetes_dataset_factor <- cbind(diabetes_dataset_factor, smoking_dummies)
+head(diabetes_dataset_factor, 5)
+```
+
+
+Data Cleaning and Outlier Handling
+```{r chunk4}
+# Select continuous variables
+num_vars <- c("age", "bmi", "HbA1c_level", "blood_glucose_level")
+
+# 2 x 2 
+par(mfrow = c(2, 2))  
+
+# boxplot
+boxplot(diabetes_dataset$age, 
+        main = "Boxplot of Age", 
+        col = "lightblue", outline = TRUE)
+
+boxplot(diabetes_dataset$bmi, 
+        main = "Boxplot of BMI", 
+        col = "lightblue", outline = TRUE)
+
+boxplot(diabetes_dataset$HbA1c_level, 
+        main = "Boxplot of HbA1c", 
+        col = "lightblue", outline = TRUE)
+
+boxplot(diabetes_dataset$blood_glucose_level, 
+        main = "Boxplot of Glucose", 
+        col = "lightblue", outline = TRUE)
+
+par(mfrow = c(1, 1))
+
+
+```
+BMI has a large number of outliers, which should be retained or binned.
+Blood Glucose Level has an upper bound outlier, but it is likely a true anomaly
+HbA1c_level has a few outliers, but not too much
+Age distribution is natural, no processing required
+
+```{r chunk5}
+# Distribution of age and BMI,HbA1c,Glucose
+library(ggplot2)
+ggplot(diabetes_dataset, aes(x = age, fill = as.factor(diabetes))) + 
+  geom_histogram(binwidth = 5, position = "dodge") +
+  labs(title = "Age Distribution by Diabetes Status", fill = "Diabetes")
+
+
+
+```
+```{r chunk5.1}
+ggplot(diabetes_dataset, aes(x = 1:nrow(diabetes_dataset), y = bmi, color = as.factor(diabetes))) +
+  geom_point(alpha = 0.4, size = 1) +
+  labs(title = "BMI Distribution by Diabetes Status",
+       x = "Index", y = "BMI", color = "Diabetes") +
+  theme_minimal()
+```
+```{r chunk5.2}
+ggplot(diabetes_dataset, aes(x = 1:nrow(diabetes_dataset), y = HbA1c_level, color = as.factor(diabetes))) +
+  geom_point(alpha = 0.4, size = 1) +
+  labs(title = "HbA1c Level by Diabetes Status",
+       x = "Index", y = "HbA1c Level", color = "Diabetes") +
+  theme_minimal()
+```
+```{r chunk5.3}
+ggplot(diabetes_dataset, aes(x = 1:nrow(diabetes_dataset), y = blood_glucose_level, color = as.factor(diabetes))) +
+  geom_point(alpha = 0.4, size = 1) +
+  labs(title = "Blood Glucose Level by Diabetes Status",
+       x = "Index", y = "Glucose Level", color = "Diabetes") +
+  theme_minimal()
+```
+```{r chunk5.4}
+ggplot(diabetes_dataset, aes(x = as.factor(hypertension), fill = as.factor(diabetes))) +
+  geom_bar(position = "fill") +
+  labs(title = "Diabetes Proportion by Hypertension",
+       x = "Hypertension (0 = No, 1 = Yes)", y = "Proportion", fill = "Diabetes") +
+  theme_minimal()
+```
+
+a Class Imbalance
+- Observation from all plots: The number of diabetes-positive cases (diabetes = 1) is significantly lower than diabetes-negative cases.
+- The dataset shows a strong class imbalance, roughly 1 diabetic case for every 10 non-diabetic cases.
+
+b Age Distribution by Diabetes Status：
+
+Most diabetes cases are concentrated in the 40+ age group. The number of diabetes cases increases steadily from age 40 to 60. This suggests that middle-aged and older adults have a significantly higher risk of diabetes.
+
+c BMI Distribution by Diabetes Status：
+
+Higher BMI is associated with more diabetes cases. There is a clear concentration of diabetic individuals in higher BMI ranges. Indicates that BMI is a strong risk factor for diabetes.
+
+d HbA1c Level by Diabetes Status：
+
+Individuals with HbA1c ≤ 5.0 are almost exclusively non-diabetic. The 6.0–6.5 range shows mixed cases, with relatively fewer diabetics. HbA1c ≥ 7.0 is almost entirely associated with diabetes.
+
+This aligns well with clinical guidelines (HbA1c ≥ 6.5% indicates diabetes). bA1c is a highly predictive variable.
+
+e Blood Glucose Level by Diabetes Status：
+
+Glucose ≤ 125: almost no diabetic cases. Glucose 125–200: mixed, but majority are non-diabetic. Glucose ≥ 200: nearly all are diabetic cases.
+
+This supports medical criteria that blood glucose over 200 mg/dL is a strong indicator of diabetes.
+
+f Diabetes Proportion by Hypertension：
+
+Diabetic proportion is much higher among individuals with hypertension. While only ~10% of non-hypertensive individuals have diabetes, over 25% of hypertensive individuals are diabetic.
+
+Suggests a significant association or comorbidity between hypertension and diabetes.
+
+
+
+
+
+
+```{r chunk6}
+# Correlation Matrix Heatmap (numeric variables only)
+library(corrplot)
+corr_matrix <- cor(diabetes_dataset[, num_vars])
+corrplot(corr_matrix, method = "color", type = "upper", tl.cex = 0.7)
+
+```
+Age and BMI have a weak to moderate positive correlation
+
+Among other variables:
+
+HbA1c_level and blood_glucose_level should be positively correlated in theory, but this data set has almost no linear correlation
+
+Age is basically uncorrelated with HbA1c_level, blood_glucose_level, etc.
+
+
+
+Feature Transformation and Scaling
+```{r chunk7.0}
+# Standardize numerical variables
+# diabetes_dataset[num_vars] <- scale(diabetes_dataset[num_vars])
+
+```
+
+```{r chunk7}
+# how gender affects diabetes
+ggplot(diabetes_dataset, aes(x = gender, fill = as.factor(diabetes))) +
+  geom_bar(position = "fill") +
+  labs(title = "Diabetes Proportion by Gender", y = "Proportion")
+
+```
+
+There is little difference in the prevalence of diabetes between females and males, but the prevalence of diabetes in males is slightly higher. Others cannot reflect much information due to too little data.
+
+
+```{r chunk8}
+# BMI vs Age by diabetes status
+ggplot(diabetes_dataset, aes(x = bmi, y = age, color = as.factor(diabetes))) +
+  geom_point(alpha = 0.5) +
+  labs(title = "BMI vs Age by Diabetes", color = "Diabetes")
+```
+
+People with diabetes are mainly concentrated in the middle-aged and elderly (over 40 years old) + high BMI area
+
+When age and BMI increase together, there are more diabetic patients
+
+```{r chunk9}
+# ttset
+t.test(age ~ diabetes, data = diabetes_dataset)
+
+# chisquare
+table_gender <- table(diabetes_dataset$gender, diabetes_dataset$diabetes)
+chisq.test(table_gender)
+```
+
+
+There is a significant difference in age between the diabetes group (diabetes == 1) and the non-diabetes group (diabetes == 0)
+The average age of patients with diabetes is about 20 years older than that of non-diabetes patients
+There is a statistical association between gender and diabetes (may be affected by the other category and lead to inaccuracy)
+
+```{r chunk10}
+library(caret)
+library(glmnet)
+library(ggplot2)
+library(dplyr)
+library(e1071)
+library(pROC)
+
+
+# Remove original gender and smoking_history columns
+cleaned_data <- diabetes_dataset_factor %>%
+  select(-gender, -smoking_history)
+
+# Ensure target is a factor
+cleaned_data$diabetes <- as.factor(cleaned_data$diabetes)
+```
+
+```{r chunk11}
+# Split Data (70% Training, 30% Testing)
+set.seed(42)
+train_index <- createDataPartition(cleaned_data$diabetes, p = 0.7, list = FALSE)
+train_data <- cleaned_data[train_index, ]
+test_data  <- cleaned_data[-train_index, ]
+
+
+```
+Train GLM (Logistic Regression)
+```{r chunk12}
+glm_model <- glm(diabetes ~ ., data = train_data, family = "binomial",
+                 control = glm.control(maxit = 100))
+
+
+# Predict on test set
+glm_pred_prob <- predict(glm_model, newdata = test_data, type = "response")
+glm_pred <- ifelse(glm_pred_prob > 0.5, 1, 0)
+glm_pred <- as.factor(glm_pred)
+
+# Actual labels
+actual <- test_data$diabetes
+
+```
+The model did not find the optimal solution within the maximum number of iterations. It is speculated that the variables Blood Glucose Level and HbA1c Level have too strong an impact on the predicted variables (causing the coefficient to increase infinitely) and the data separation is serious.
+
+Evaluation for GLM
+```{r chunk13}
+# Confusion Matrix
+conf_glm <- confusionMatrix(glm_pred, actual, positive = "1")
+print(conf_glm)
+
+# F1 Score
+F1_Score <- function(pred, true, positive = "1") {
+  cm <- table(pred, true)
+  precision <- cm[positive, positive] / sum(cm[positive, ])
+  recall <- cm[positive, positive] / sum(cm[, positive])
+  f1 <- 2 * precision * recall / (precision + recall)
+  return(f1)
+}
+
+f1_glm <- F1_Score(glm_pred, actual)
+cat("F1 Score (GLM):", f1_glm, "\n")
+
+```
+The model’s overall prediction accuracy is 0.959, which is very high.
+However, the recall for diabetic patients is relatively low at 0.6282.
+Considering that the proportion of diabetic patients in the dataset is low,
+and that Blood Glucose Level and HbA1c Level have an excessively strong influence,
+this suggests that the model performs poorly in distinguishing between diabetic and non-diabetic individuals in certain ranges,
+
+
+Lasso Logistic Regression + Visualization
+```{r chunk14}
+# Prepare matrices for glmnet
+x_train <- model.matrix(diabetes ~ ., train_data)[, -1]
+x_test  <- model.matrix(diabetes ~ ., test_data)[, -1]
+y_train <- train_data$diabetes
+y_test  <- test_data$diabetes
+
+# Lasso logistic regression (alpha = 1 for L1)
+set.seed(42)
+lasso_model <- cv.glmnet(x_train, y_train, family = "binomial", alpha = 1, type.measure = "class")
+
+# Best lambda
+best_lambda <- lasso_model$lambda.min
+cat("Best Lambda:", best_lambda, "\n")
+
+# Predict on test data
+lasso_pred_prob <- predict(lasso_model, newx = x_test, s = "lambda.min", type = "response")
+lasso_pred <- ifelse(lasso_pred_prob > 0.5, 1, 0)
+lasso_pred <- as.factor(lasso_pred)
+
+# Confusion Matrix
+conf_lasso <- confusionMatrix(lasso_pred, y_test, positive = "1")
+print(conf_lasso)
+
+# F1 Score
+f1_lasso <- F1_Score(lasso_pred, y_test)
+cat("F1 Score (Lasso):", f1_lasso, "\n")
+
+```
+```{r chunk15.0}
+# Extract the coefficients at the optimal lambda
+lasso_coefs <- coef(lasso_model, s = "lambda.min")
+
+# View non-zero coefficients (including intercept)
+nonzero_coef <- lasso_coefs[lasso_coefs[, 1] != 0, ]
+print(nonzero_coef)
+
+# 
+nonzero_feature_names <- rownames(lasso_coefs)[which(lasso_coefs[, 1] != 0)]
+nonzero_feature_names <- setdiff(nonzero_feature_names, "(Intercept)")
+
+cat("Features selected by Lasso:\n")
+print(nonzero_feature_names)
+```
+## Lasso model analysis conclusion:
+
+After using the Lasso logistic regression model for feature selection, I came to some inspiring findings, especially about the treatment of smoking history variables and the relative importance of other major risk factors:
+
+Treatment and impact of smoking history variables:
+
+After grouping the `smoking_history` variable and one-hot encoding it, the model only retains the coefficient of `smoking_status_groupedunknown` (that is, the part of "No Info" in the original data), and other dummy variables such as `"never"`, `"former"`, `"current"` are all compressed to zero by Lasso. This shows that:
+
+Smoking history does not provide effective discriminant information in this dataset;
+
+Instead, people with missing smoking information (No Info) show statistical significance;
+
+Therefore, when using linear models (such as Lasso or logistic regression), I think it is necessary to consider removing the smoking history variable to avoid introducing interference signals.
+
+Main risk factors (by Lasso model coefficient):
+
+Based on the retained non-zero coefficients, I draw the following conclusions:
+
+Age: The older you are, the higher your risk of diabetes, but its influence is less than the following physiological factors;
+Hypertension and Heart Disease: Significantly increase the risk of diabetes and are important comorbid factors;
+HbA1c level: Has the strongest impact on diabetes prediction, with each increase of 1 unit, the risk increases significantly, and is the most critical biomarker;
+BMI and Blood Glucose: Both are positive factors, the higher the BMI and blood sugar levels, the greater the risk of diabetes;
+Gender: Males are slightly higher than females, but the impact is very limited.
+
+
+Lasso is not significantly better than logistic regression (GLM). Although it does have some details, its overall performance is still limited by the structure of the data and the class imbalance problem.
+
+
+
+```{r chunk15}
+# Plot Lasso coefficient paths
+plot(lasso_model$glmnet.fit, xvar = "lambda", label = TRUE)
+title("Lasso Coefficients vs Log(Lambda)")
+
+```
+```{r chunk16}
+roc_obj <- roc(as.numeric(y_test), as.numeric(lasso_pred_prob))
+auc(roc_obj)
+plot(roc_obj, main = "ROC Curve for Lasso")
+```
+
+```{r chunk17}
+library(xgboost)
+
+library(caret)
+library(pROC)
+
+```
+```{r chunk18}
+# Remove target column for X and convert to matrix
+train_data$smoking_status_grouped <- NULL
+test_data$smoking_status_grouped <- NULL
+x_train <- train_data[, setdiff(names(train_data), "diabetes")]
+x_train[] <- lapply(x_train, function(col) as.numeric(as.character(col)))
+x_train <- as.matrix(x_train)
+
+x_test <- test_data[, setdiff(names(test_data), "diabetes")]
+x_test[] <- lapply(x_test, function(col) as.numeric(as.character(col)))
+x_test <- as.matrix(x_test)
+
+# convert label
+y_train <- ifelse(train_data$diabetes == "1", 1, 0)
+y_test <- ifelse(test_data$diabetes == "1", 1, 0)
+
+
+```
+
+```{r chunk18.1}
+x_train_raw <- train_data[, setdiff(names(train_data), "diabetes")]
+sapply(x_train_raw, function(col) sum(is.na(as.numeric(as.character(col)))))
+sapply(train_data, class)
+
+```
+
+```{r chunk19}
+# Define XGBoost parameters (binary:logistic for classification)
+params <- list(
+  objective = "binary:logistic",
+  eval_metric = "logloss",
+  max_depth = 6,
+  eta = 0.1
+)
+
+# Convert to DMatrix
+dtrain <- xgb.DMatrix(data = x_train, label = y_train)
+dtest  <- xgb.DMatrix(data = x_test)
+
+# Train model
+set.seed(42)
+xgb_model <- xgb.train(params = params, data = dtrain, nrounds = 100, verbose = 0)
+```
+
+
+```{r chunk20}
+# Predict probabilities
+
+xgb_pred_prob <- predict(xgb_model, dtest)
+
+# Predict labels (using 0.5 threshold)
+xgb_pred <- ifelse(xgb_pred_prob > 0.5, 1, 0)
+xgb_pred <- as.factor(xgb_pred)
+actual <- as.factor(y_test)
+```
+
+
+
+
+
+```{r chunk21}
+# Confusion matrix
+conf_xgb <- confusionMatrix(xgb_pred, actual, positive = "1")
+print(conf_xgb)
+
+# F1 Score
+F1_Score <- function(pred, true, positive = "1") {
+  cm <- table(pred, true)
+  if (!positive %in% rownames(cm) || !positive %in% colnames(cm)) return(NA)
+  precision <- cm[positive, positive] / sum(cm[positive, ])
+  recall <- cm[positive, positive] / sum(cm[, positive])
+  if (is.na(precision) || is.na(recall) || (precision + recall) == 0) return(0)
+  f1 <- 2 * precision * recall / (precision + recall)
+  return(f1)
+}
+
+f1_xgb <- F1_Score(xgb_pred, actual)
+cat("F1 Score (XGBoost):", f1_xgb, "\n")
+
+```
+
+
+
+```{r chunk22}
+roc_obj <- roc(y_test, xgb_pred_prob)
+auc_val <- auc(roc_obj)
+plot(roc_obj, main = paste("ROC Curve for XGBoost (AUC =", round(auc_val, 4), ")"))
+
+```
+
+
+XGBoost model performance is significantly better than the previous generalized linear model (GLM)
+
+
+
+
+```{r chunk23}
+library(randomForest)
+library(caret)
+library(MLmetrics)
+set.seed(42)
+
+# preparation
+train_index <- createDataPartition(diabetes_dataset$diabetes, p = 0.7, list = FALSE)
+train_data <- diabetes_dataset[train_index, ]
+test_data  <- diabetes_dataset[-train_index, ]
+
+train_data$diabetes <- as.factor(train_data$diabetes)
+test_data$diabetes  <- as.factor(test_data$diabetes)
+
+# --------------------------
+# A. All variables model（Baseline）
+# --------------------------
+rf_all <- randomForest(diabetes ~ ., data = train_data, ntree = 1000, maxnodes = 2^4, importance = TRUE)
+pred_all <- predict(rf_all, test_data)
+confusion_all <- confusionMatrix(pred_all, test_data$diabetes, positive = "1")
+f1_all <- F1_Score(pred_all, test_data$diabetes, positive = "1")
+
+# --------------------------
+# B. Univariate Model（HbA1c only）
+# --------------------------
+rf_hba1c <- randomForest(diabetes ~ HbA1c_level, data = train_data, ntree = 1000, maxnodes = 2^4)
+pred_hba1c <- predict(rf_hba1c, test_data)
+confusion_hba1c <- confusionMatrix(pred_hba1c, test_data$diabetes, positive = "1")
+f1_hba1c <- F1_Score(pred_hba1c, test_data$diabetes, positive = "1")
+
+# --------------------------
+# C. Multiple strong predictors
+# --------------------------
+rf_strong <- randomForest(diabetes ~ HbA1c_level + hypertension + heart_disease,
+                          data = train_data, ntree = 1000, maxnodes = 2^4)
+pred_strong <- predict(rf_strong, test_data)
+confusion_strong <- confusionMatrix(pred_strong, test_data$diabetes, positive = "1")
+f1_strong <- F1_Score(pred_strong, test_data$diabetes, positive = "1")
+
+
+# --------------------------
+# Output
+# --------------------------
+cat("F1 Score - All variables:", f1_all, "\n")
+cat("F1 Score - HbA1c only   :", f1_hba1c, "\n")
+cat("F1 Score - Strong set   :", f1_strong, "\n")
+
+# 可选：变量重要性图
+varImpPlot(rf_all, main = "All Variables Importance")
+varImpPlot(rf_strong, main = "Strong Predictors Importance")
+```
+
+The model with all variables performed best. The model with only HbA1c_level had an F1 ≈ 0.622, which is a baseline and has some effect, but is much lower than the complete model. Even with hypertension and heart_disease added, the F1 was still 0.622.
+```{r chunk24.01}
+confusion_all
+```
+
+```{r chunk24}
+cor(train_data$HbA1c_level, train_data$blood_glucose_level, use = "complete.obs")
+cor(train_data$HbA1c_level, train_data$hypertension, use = "complete.obs")
+cor(train_data$HbA1c_level, train_data$heart_disease, use = "complete.obs")
+```
+There is no obvious collinearity between HbA1c_level, hypertension and heart_disease
+
+```{r chunk25}
+# Frequency table
+table(train_data$hypertension)
+table(train_data$heart_disease)
+
+# Percentage Distribution
+prop.table(table(train_data$hypertension))
+prop.table(table(train_data$heart_disease))
+
+# the distribution in different diabetes categories
+table(train_data$hypertension, train_data$diabetes)
+prop.table(table(train_data$hypertension, train_data$diabetes), margin = 2)
+```
+The distribution of variables is extremely uneven
+```{r chunk26}
+library(ranger)
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r chunk26}
+library(ranger)
+library(caret)
+
+train_data$diabetes <- as.factor(train_data$diabetes)
+test_data$diabetes  <- as.factor(test_data$diabetes)
+
+# set class weights
+class_weights <- c("0" = 1, "1" = 3)  # can adjust it to 1:5 to see the impact
+
+
+# Training a weighted random forest model
+rf_weighted <- ranger(
+  formula = diabetes ~ .,
+  data = train_data,
+  num.trees = 1000,
+  max.depth = 4,
+  classification = TRUE,
+  probability = FALSE,
+  class.weights = class_weights,
+  importance = "impurity"
+)
+
+pred_weighted <- predict(rf_weighted, data = test_data)$predictions
+confusion <- confusionMatrix(pred_weighted, test_data$diabetes, positive = "1")
+print(confusion)
+
+# Output variable importance
+importance_vals <- ranger::importance(rf_weighted)
+print(importance_vals)
+
+# F1 score
+f1 <- F1_Score(pred_weighted, test_data$diabetes, positive = "1")
+cat("F1 Score:", f1, "\n")
+```
+
+The results remain unchanged after weighting
+
+
+
+
+
+```{r Dataset after selecting variables}
+# Step 1: Remove 'smoking_history' to create a new dataset
+diabetes_dataset_without <- diabetes_dataset
+diabetes_dataset_without$smoking_history <- NULL
+
+# Step 2: Create a new dataset with gender as factor and one-hot encoded
+diabetes_dataset_without_factor <- diabetes_dataset_without
+
+# Convert gender to factor
+diabetes_dataset_without_factor$gender <- factor(diabetes_dataset_without_factor$gender)
+
+# Create dummy variables for gender (one-hot encoding)
+gender_dummies <- model.matrix(~ gender - 1, data = diabetes_dataset_without_factor)
+
+# Combine dummy variables back to the dataset
+diabetes_dataset_without_factor <- cbind(diabetes_dataset_without_factor, gender_dummies)
+```
+
+## Model Development and Training
+
+### Data Preparation for Modeling
+
+```{r chunk8}
+# Load required libraries
+library(caret)
+library(randomForest)
+library(e1071)
+library(pROC)
+library(ggplot2)
+library(dplyr)
+
+# Prepare features for modeling
+# Select relevant features (excluding original categorical variables that were encoded)
+model_features <- c("age", "bmi", "HbA1c_level", "blood_glucose_level", 
+                   "hypertension", "heart_disease",
+                   "genderFemale", "genderMale")
+
+# Create modeling dataset
+model_data <- diabetes_dataset_without_factor[, c(model_features, "diabetes")]
+# Convert diabetes to factor with proper level names
+model_data$diabetes <- factor(model_data$diabetes, 
+                              levels = c(0, 1), 
+                              labels = c("No_Diabetes", "Diabetes"))
+
+# Check class balance
+table(model_data$diabetes)
+prop.table(table(model_data$diabetes))
+```
+
+### Train-Test-Validation Split
+
+```{r chunk9}
+# Set seed for reproducibility
+set.seed(123)
+
+# First split: 70% training, 30% remaining
+train_index <- createDataPartition(model_data$diabetes, p = 0.7, list = FALSE)
+train_data <- model_data[train_index, ]
+temp_data <- model_data[-train_index, ]
+
+# Second split: 15% validation, 15% test
+val_index <- createDataPartition(temp_data$diabetes, p = 0.5, list = FALSE)
+val_data <- temp_data[val_index, ]
+test_data <- temp_data[-val_index, ]
+
+# Check split sizes
+cat("Training set size:", nrow(train_data), "\n")
+cat("Validation set size:", nrow(val_data), "\n")
+cat("Test set size:", nrow(test_data), "\n")
+
+# Check class distribution in each set
+cat("\nClass distribution in training set:\n")
+print(table(train_data$diabetes))
+cat("\nClass distribution in validation set:\n")
+print(table(val_data$diabetes))
+cat("\nClass distribution in test set:\n")
+print(table(test_data$diabetes))
+```
+
+### Feature Scaling
+
+```{r chunk10}
+# Scale numerical features
+numerical_features <- c("age", "bmi", "HbA1c_level", "blood_glucose_level")
+
+# Calculate scaling parameters from training data
+preprocess_params <- preProcess(train_data[, numerical_features], method = c("center", "scale"))
+
+# Apply scaling to all datasets
+train_scaled <- train_data
+val_scaled <- val_data
+test_scaled <- test_data
+
+train_scaled[, numerical_features] <- predict(preprocess_params, train_data[, numerical_features])
+val_scaled[, numerical_features] <- predict(preprocess_params, val_data[, numerical_features])
+test_scaled[, numerical_features] <- predict(preprocess_params, test_data[, numerical_features])
+```
+
+```{r chunk10.1 feature-distributions-combined-gridextra, fig.width=16, fig.height=8, message=FALSE, warning=FALSE}
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(gridExtra)
+
+# Create 'before scaling' plot
+train_before <- train_data %>%
+  select(age, bmi, HbA1c_level, blood_glucose_level, diabetes) %>%
+  pivot_longer(cols = -diabetes, names_to = "feature", values_to = "value")
+
+plot_before <- ggplot(train_before, aes(x = value, fill = diabetes)) +
+  geom_histogram(position = "identity", bins = 30, alpha = 0.6) +
+  facet_wrap(~ feature, scales = "free", ncol = 2) +
+  labs(title = "Before Scaling", x = "Original Value", y = "Count") +
+  theme_minimal()
+
+# Create 'after scaling' plot
+train_after <- train_scaled %>%
+  select(age, bmi, HbA1c_level, blood_glucose_level, diabetes) %>%
+  pivot_longer(cols = -diabetes, names_to = "feature", values_to = "value")
+
+plot_after <- ggplot(train_after, aes(x = value, fill = diabetes)) +
+  geom_histogram(position = "identity", bins = 30, alpha = 0.6) +
+  facet_wrap(~ feature, scales = "free", ncol = 2) +
+  labs(title = "After Scaling", x = "Scaled Value", y = "Count") +
+  theme_minimal()
+
+# Display both plots side-by-side
+grid.arrange(plot_before, plot_after, ncol = 2)
+```
+
+
+### Model Training with Cross-Validation
+
+```{r chunk11}
+# Set up cross-validation control
+ctrl <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = TRUE
+)
+
+# 1. Logistic Regression
+set.seed(123)
+lr_model <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "glm",
+  trControl = ctrl,
+  metric = "ROC"
+)
+
+# 2. Random Forest
+set.seed(123)
+rf_model <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "rf",
+  trControl = ctrl,
+  metric = "ROC",
+  tuneLength = 3
+)
+
+# 3. XGBoost (Simplified version)
+set.seed(123)
+xgb_model <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "xgbTree",
+  trControl = ctrl,
+  metric = "ROC",
+  tuneLength = 3,  # Reduced tuning
+  verbose = FALSE  # Reduce output
+)
+
+# 4. Gradient Boosting Machine (GBM)
+set.seed(123)
+gbm_model <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "gbm",
+  trControl = ctrl,
+  metric = "ROC",
+  tuneLength = 3,  # Reduced tuning
+  verbose = FALSE  # Reduce output
+)
+```
+
+### Model Performance Comparison
+
+```{r chunk12}
+# Compare model performances
+models <- list(
+  "Logistic Regression" = lr_model,
+  "Random Forest" = rf_model,
+  "XGBoost" = xgb_model,
+  "GBM" = gbm_model
+)
+
+# Extract results
+results <- resamples(models)
+summary(results)
+
+# Plot comparison
+bwplot(results, metric = "ROC")
+dotplot(results, metric = "ROC")
+```
+
+### Hyperparameter Tuning
+
+```{r chunk13}
+# Random Forest with detailed tuning
+rf_grid <- expand.grid(
+  mtry = c(2, 3, 4, 5, 6)
+)
+
+set.seed(123)
+rf_tuned <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "rf",
+  trControl = ctrl,
+  metric = "ROC",
+  tuneGrid = rf_grid
+)
+```
+
+### Model Evaluation
+
+```{r chunk14}
+# Function to evaluate model performance
+evaluate_model <- function(model, test_data, model_name) {
+  # Make predictions
+  predictions <- predict(model, test_data, type = "prob")
+  predicted_class <- predict(model, test_data)
+  
+  # Calculate metrics
+  cm <- confusionMatrix(predicted_class, test_data$diabetes, positive = "Diabetes")
+  roc_obj <- roc(test_data$diabetes, predictions$`Diabetes`)
+  auc_score <- auc(roc_obj)
+  
+  # Return results
+  results <- list(
+    model_name = model_name,
+    accuracy = cm$overall["Accuracy"],
+    sensitivity = cm$byClass["Sensitivity"],
+    specificity = cm$byClass["Specificity"],
+    precision = cm$byClass["Precision"],
+    f1_score = cm$byClass["F1"],
+    auc = auc_score,
+    confusion_matrix = cm,
+    roc_obj = roc_obj
+  )
+  
+  return(results)
+}
+
+# Evaluate all models on validation set
+validation_results <- list()
+
+validation_results$lr <- evaluate_model(lr_model, val_scaled, "Logistic Regression")
+validation_results$rf <- evaluate_model(rf_tuned, val_scaled, "Random Forest")
+validation_results$xgb <- evaluate_model(xgb_model, val_scaled, "XGBoost")
+validation_results$gbm <- evaluate_model(gbm_model, val_scaled, "GBM")
+
+# Create comparison table
+comparison_table <- data.frame(
+  Model = sapply(validation_results, function(x) x$model_name),
+  Accuracy = sapply(validation_results, function(x) x$accuracy),
+  Sensitivity = sapply(validation_results, function(x) x$sensitivity),
+  Specificity = sapply(validation_results, function(x) x$specificity),
+  Precision = sapply(validation_results, function(x) x$precision),
+  F1_Score = sapply(validation_results, function(x) x$f1_score),
+  AUC = sapply(validation_results, function(x) x$auc)
+)
+
+print(comparison_table)
+```
+
+### ROC Curves Comparison
+
+```{r chunk15}
+# Plot ROC curves
+plot(validation_results$lr$roc_obj, col = "blue", main = "ROC Curves Comparison")
+plot(validation_results$rf$roc_obj, col = "red", add = TRUE)
+plot(validation_results$xgb$roc_obj, col = "purple", add = TRUE)
+plot(validation_results$gbm$roc_obj, col = "green", add = TRUE)
+legend("bottomright", 
+       legend = c("Logistic Regression", "Random Forest", "XGBoost", "GBM"),
+       col = c("blue", "red", "purple", "green"), 
+       lty = 1)
+```
+
+### Feature Importance Analysis
+
+```{r chunk16}
+# Feature importance for Random Forest
+rf_importance <- varImp(rf_tuned)
+plot(rf_importance, main = "Feature Importance - Random Forest")
+
+# Feature importance for XGBoost
+xgb_importance <- varImp(xgb_model)
+plot(xgb_importance, main = "Feature Importance - XGBoost")
+
+# Feature importance for GBM
+# gbm_importance <- varImp(gbm_model)
+# plot(gbm_importance, main = "Feature Importance - GBM")
+
+# Print importance scores
+print(rf_importance)
+print(xgb_importance)
+# print(gbm_importance)
+
+# The GBM model trained successfully, but feature importance extraction
+# has compatibility issues with the caret package wrapper.
+# This is a known issue and doesn't affect model performance.
+```
+
+### Alternative GBM Feature Importance (if needed)
+
+```{r gbm_importance_alt}
+# Alternative method for GBM feature importance
+# tryCatch({
+#   # Try the standard method first
+#   gbm_importance <- varImp(gbm_model)
+#   print("GBM Feature Importance (Standard Method):")
+#   print(gbm_importance)
+# }, error = function(e) {
+#   # If that fails, use a simpler approach
+#   cat("GBM Feature Importance (Alternative Method):\n")
+#   cat("Note: GBM feature importance extraction has compatibility issues with caret\n")
+#   cat("The model trained successfully, but importance scores may not be available\n")
+#   
+#   # You can also try extracting from the underlying gbm object
+#   tryCatch({
+#     gbm_obj <- gbm_model$finalModel
+#     if (!is.null(gbm_obj)) {
+#       cat("GBM model trained successfully with", gbm_obj$n.trees, "trees\n")
+#     }
+#   }, error = function(e2) {
+#     cat("GBM model details not accessible\n")
+#   })
+# })
+```
+
+### Final Model Selection and Test Set Evaluation
+
+```{r chunk17}
+# Select best model based on validation performance
+best_model_name <- comparison_table$Model[which.max(comparison_table$AUC)]
+cat("Best model based on AUC:", best_model_name, "\n")
+
+# Get the best model
+if (best_model_name == "Logistic Regression") {
+  best_model <- lr_model
+} else if (best_model_name == "Random Forest") {
+  best_model <- rf_tuned
+} else if (best_model_name == "XGBoost") {
+  best_model <- xgb_model
+} else if (best_model_name == "GBM") {
+  best_model <- gbm_model
+}
+
+# Evaluate best model on test set
+final_results <- evaluate_model(best_model, test_scaled, paste("Best Model:", best_model_name))
+
+cat("\nFinal Test Set Results:\n")
+cat("Accuracy:", round(final_results$accuracy, 4), "\n")
+cat("Sensitivity:", round(final_results$sensitivity, 4), "\n")
+cat("Specificity:", round(final_results$specificity, 4), "\n")
+cat("Precision:", round(final_results$precision, 4), "\n")
+cat("F1 Score:", round(final_results$f1_score, 4), "\n")
+cat("AUC:", round(final_results$auc, 4), "\n")
+
+# Final confusion matrix
+print(final_results$confusion_matrix)
+```
+
+### Model Interpretation
+
+```{r chunk18}
+# For logistic regression, show coefficients
+if (best_model_name == "Logistic Regression") {
+  coef_summary <- summary(best_model)$coefficients
+  print("Logistic Regression Coefficients:")
+  print(coef_summary)
+  
+  # Calculate odds ratios
+  odds_ratios <- exp(coef_summary[, "Estimate"])
+  
+  # Calculate confidence intervals manually (since confint doesn't work with caret objects)
+  std_errors <- coef_summary[, "Std. Error"]
+  z_value <- 1.96  # 95% confidence interval
+  
+  lower_ci <- exp(coef_summary[, "Estimate"] - z_value * std_errors)
+  upper_ci <- exp(coef_summary[, "Estimate"] + z_value * std_errors)
+  
+  odds_table <- data.frame(
+    Feature = rownames(coef_summary),
+    Coefficient = coef_summary[, "Estimate"],
+    Odds_Ratio = odds_ratios,
+    Lower_CI = lower_ci,
+    Upper_CI = upper_ci,
+    P_value = coef_summary[, "Pr(>|z|)"]
+  )
+  
+  print("Odds Ratios and Confidence Intervals:")
+  print(odds_table)
+}
+```
+
+### Summary and Conclusions
+
+```{r chunk19}
+# Summary statistics
+cat("Dataset Summary:\n")
+cat("Total samples:", nrow(diabetes_dataset), "\n")
+cat("Diabetes prevalence:", round(mean(diabetes_dataset$diabetes == 1), 3), "\n")
+cat("Class imbalance ratio:", round(sum(diabetes_dataset$diabetes == 0) / sum(diabetes_dataset$diabetes == 1), 2), ":1\n")
+
+cat("\nKey Findings:\n")
+
+# Handle feature importance for different model types
+if (best_model_name == "Logistic Regression") {
+  # For logistic regression, use coefficients
+  coef_importance <- abs(summary(best_model)$coefficients[, "Estimate"])
+  top_features <- names(sort(coef_importance, decreasing = TRUE)[1:5])
+  cat("1. Most important features:", paste(top_features, collapse = ", "), "\n")
+} else {
+  # For Random Forest, use variable importance
+  tryCatch({
+    rf_importance <- varImp(best_model)$importance
+    # Extract the importance values as a vector
+    if (is.data.frame(rf_importance)) {
+      importance_values <- rf_importance[, 1]
+    } else {
+      importance_values <- as.numeric(rf_importance)
+    }
+    # Get feature names
+    if (is.data.frame(rf_importance)) {
+      feature_names <- rownames(rf_importance)
+    } else {
+      feature_names <- names(rf_importance)
+    }
+    # Sort and get top 5
+    sorted_indices <- order(importance_values, decreasing = TRUE)
+    top_features <- feature_names[sorted_indices[1:5]]
+    cat("1. Most important features:", paste(top_features, collapse = ", "), "\n")
+  }, error = function(e) {
+    cat("1. Most important features: Unable to extract (using Random Forest)\n")
+  })
+}
+
+cat("2. Best performing model:", best_model_name, "\n")
+cat("3. Final AUC on test set:", round(final_results$auc, 4), "\n")
+cat("4. Model sensitivity:", round(final_results$sensitivity, 4), "\n")
+cat("5. Model specificity:", round(final_results$specificity, 4), "\n")
+```
