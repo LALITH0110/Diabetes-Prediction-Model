@@ -1,0 +1,731 @@
+---
+title: "Pima Indians Diabetes"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+author: ""
+date: "`r Sys.Date()`"
+---
+
+## 1. Data loading
+
+```{r chunk1}
+# If the mlbench package is not installed yet, please install it first
+
+library(mlbench)
+
+# load
+data("PimaIndiansDiabetes")
+
+pima_data <- PimaIndiansDiabetes
+str(pima_data)
+```
+
+```{r chunk1.1}
+head(pima_data)
+```
+
+
+
+> **Description**
+> The dataset contains 768 rows and 9 columns, and the main attributes include:
+>
+> * **pregnant**: number of pregnancies
+> * **glucose**: plasma glucose concentration
+> * **pressure**: diastolic blood pressure (mm Hg)
+> * **triceps**: triceps skinfold thickness (mm)
+> * **insulin**: 2-hour serum insulin (mu U/ml)
+> * **mass**: BMI (body mass index)
+> * **pedigree**: diabetes family history function
+> * **age**: age
+> * **diabetes**: target variable, factor category ("pos" means diabetes, "neg" means no disease)
+
+
+## 2. cleaning and data preparing
+
+### 2.1 NA
+
+```{r chunk2}
+# View basic statistics for each variable
+summary(pima_data)
+
+# Check the number of missing values
+sapply(pima_data, function(x) sum(is.na(x)))
+```
+
+
+### 2.2 Dealing with outliers
+
+A simple check on the glucose variable
+
+```{r handle-zeros}
+# Check the number of 0 values in glucose
+sum(pima_data$glucose == 0)
+
+# Cannot be 0
+pima_data$glucose <- ifelse(pima_data$glucose == 0, NA, pima_data$glucose)
+
+# View the updated missing values
+table(is.na(pima_data$glucose))
+```
+```{r handle-zeros.1}
+# the mean of glucose
+glucose_mean <- mean(pima_data$glucose, na.rm = TRUE)
+
+# substitute
+pima_data$glucose[is.na(pima_data$glucose)] <- glucose_mean
+```
+
+```{r handle-zeros-rest}
+# List of variables to clean (where 0 is likely invalid)
+vars_to_clean <- c("pressure", "triceps", "insulin", "mass")
+
+# Loop over variables
+for (var in vars_to_clean) {
+  # Convert 0 to NA
+  pima_data[[var]] <- ifelse(pima_data[[var]] == 0, NA, pima_data[[var]])
+  
+  # Compute mean without NA
+  var_mean <- mean(pima_data[[var]], na.rm = TRUE)
+  
+  # Replace NA with mean
+  pima_data[[var]][is.na(pima_data[[var]])] <- var_mean
+}
+```
+
+### 2.3 preprocessing
+
+```{r preprocessing}
+# For the target variable diabetes, confirm that it is a factor (if it is not already a factor)
+pima_data$diabetes <- as.factor(pima_data$diabetes)
+
+```
+
+
+## 3.  Feature Interaction Analysis
+
+### 3.1  Distribution of Numerical Features
+
+```{r univariate-plots, fig.width=7, fig.height=5}
+library(ggplot2)
+
+# Plot histogram of age
+ggplot(pima_data, aes(x = age)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+  labs(title = "Distribution of Age", x = "Age", y = "Count")
+
+# Plot histogram of glucose
+ggplot(pima_data, aes(x = glucose)) +
+  geom_histogram(bins = 30, fill = "lightgreen", color = "black") +
+  labs(title = "Distribution of Glucose", x = "Plasma Glucose Concentration", y = "Count")
+
+```
+
+### 3.2 Categorical Feature Impact on Target
+
+```{r categorical-analysis}
+# Frequency of different pregnancy counts
+table(pima_data$pregnant)
+
+# Analyze the effect of number of pregnancies on diabetes outcome
+ggplot(pima_data, aes(x = as.factor(pregnant), fill = diabetes)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Diabetes by Pregnancy Count", 
+       x = "Number of Pregnancies", 
+       y = "Proportion", 
+       fill = "Diabetes Status")
+
+```
+The sample size is obviously decreasing as the number of pregnancies increases.
+It seems that the more pregnancies you have, the higher your risk of diabetes, but the data is not supportive at this time.
+
+```{r p-analysis}
+model <- glm(diabetes ~ pregnant, data = pima_data, family = binomial)
+summary(model)
+```
+Although the sample size is small at very high pregnancies (e.g., ≥14), and the proportion graph may exaggerate the trend, overall, the logistic regression shows that the number of pregnancies is significantly positively associated with the incidence of diabetes. For each additional pregnancy, the odds of diabetes increase by approximately 14.7%.
+
+
+
+### 3.3 Cross-Feature Interaction: Scatter Plots
+```{r test0}
+sum(is.na(pima_data$glucose))     
+sum(is.na(pima_data$age))         
+```
+
+```{r scatter-analysis}
+# Scatter plot: age vs. glucose colored by diabetes status
+ggplot(pima_data, aes(x = age, y = glucose, color = diabetes)) +
+  geom_point() +
+  labs(title = "Age vs. Glucose Colored by Diabetes Status", 
+       x = "Age", 
+       y = "Plasma Glucose Concentration", 
+       color = "Diabetes Status")
+
+```
+Among people with high blood sugar, the proportion of diabetes is higher, and the impact of age is not as significant as blood sugar
+
+
+
+
+```{r boxplot1}
+library(ggplot2)
+
+# Boxplots for each variable
+vars_to_plot <- c("pressure", "triceps", "insulin", "mass", "pedigree")
+
+for (var in vars_to_plot) {
+  p <- ggplot(pima_data, aes_string(x = "factor(diabetes)", y = var)) +
+    geom_boxplot(fill = "skyblue") +
+    labs(title = paste("Boxplot of", var, "by Diabetes Status"),
+         x = "Diabetes (0 = No, 1 = Yes)",
+         y = var)
+  print(p)
+}
+
+
+```
+
+The reason for the numerous outliers in **serum insulin** may be that insulin levels in the human body naturally fluctuate significantly.
+
+I believe this feature may not contribute positively to the model's performance. Therefore, it's important to compare the results of models with and without this feature during training.
+
+Triceps skinfold thickness is a commonly used anthropometric method for estimating body fat percentage. However, I also believe that this feature does not contribute positively to the model's performance.
+
+
+```{r Density Plot}
+for (var in vars_to_plot) {
+  p <- ggplot(pima_data, aes_string(x = var, fill = "factor(diabetes)")) +
+    geom_density(alpha = 0.4) +
+    labs(title = paste("Density Plot of", var, "by Diabetes Status"),
+         x = var, fill = "Diabetes") +
+    theme_minimal()
+  print(p)
+}
+
+```
+Pressure: The overall blood pressure of diabetic patients is slightly higher. The difference is not significant.
+
+Triceps: The two categories almost completely overlap, and the peak position in the middle is close.
+
+Insulin: The data is very biased, with dense spikes and a large number of outliers.
+
+Mass: The overall BMI of diabetic patients is higher.
+
+Pedigree: People with high pedigree values are more likely to be ill.
+
+```{r Facet Histogram}
+for (var in vars_to_plot) {
+  p <- ggplot(pima_data, aes_string(x = var)) +
+    geom_histogram(bins = 30, fill = "lightgreen", color = "black") +
+    facet_wrap(~diabetes) +
+    labs(title = paste("Histogram of", var, "by Diabetes Status"),
+         x = var, y = "Count") +
+    theme_minimal()
+  print(p)
+}
+
+
+```
+
+
+## 4. GLM Model Training
+
+### 4.1 Train/Test Split
+
+```{r train-test-split}
+
+library(caret)
+
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Split dataset: 70% training, 30% testing
+train_index <- createDataPartition(pima_data$diabetes, p = 0.7, list = FALSE)
+train_data <- pima_data[train_index, ]
+test_data <- pima_data[-train_index, ]
+```
+
+
+### 4.2 Train the Logistic Regression Model (GLM with Binomial Family)
+
+```{r glm-training}
+# Train logistic regression using all available features
+glm_model <- glm(diabetes ~ ., data = train_data, family = "binomial")
+
+# View model summary
+summary(glm_model)
+```
+Based on the model output above, the non-significant variables include pressure, triceps, and insulin. These variables have p-values greater than 0.05.
+
+```{r glm-training}
+# Train logistic regression without the non-significant variables
+diabetes_glm <- glm(diabetes ~ pregnant + glucose + mass + pedigree + age, 
+                    data = train_data, 
+                    family = "binomial")
+
+# View summary of the simplified model
+summary(diabetes_glm)
+```
+
+### 4.3 Prediction and Model Evaluation
+
+```{r glm-prediction}
+# Predict probabilities on the test set
+pred_prob <- predict(glm_model, newdata = test_data, type = "response")
+
+# Convert probabilities to class labels using a 0.5 threshold
+pred_class <- ifelse(pred_prob > 0.5, "pos", "neg")
+pred_class <- factor(pred_class, levels = levels(test_data$diabetes))
+
+# Build confusion matrix
+conf_matrix <- table(Predicted = pred_class, Actual = test_data$diabetes)
+print(conf_matrix)
+
+# Calculate accuracy
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+cat("Accuracy =", accuracy, "\n")
+```
+
+
+
+###  4.4 Evaluation Metrics: Precision, Recall, F1 Score, ROC AUC
+
+```{r glm-metrics}
+# Load required libraries
+library(caret)
+library(pROC)
+
+# Precision
+precision <- posPredValue(pred_class, test_data$diabetes, positive = "pos")
+
+# Recall (also called Sensitivity)
+recall <- sensitivity(pred_class, test_data$diabetes, positive = "pos")
+
+# F1 Score
+f1_score <- 2 * precision * recall / (precision + recall)
+
+# Print metrics
+cat("Precision:", round(precision, 3), "\n")
+cat("Recall:", round(recall, 3), "\n")
+cat("F1 Score:", round(f1_score, 3), "\n")
+```
+
+
+### 4.5 ROC Curve and AUC (Area Under Curve)
+
+```{r glm-roc-auc, message=FALSE}
+# Convert true labels to numeric: pos = 1, neg = 0
+actual_numeric <- ifelse(test_data$diabetes == "pos", 1, 0)
+
+# Compute ROC
+roc_obj <- roc(actual_numeric, pred_prob)
+
+# Plot ROC Curve
+plot(roc_obj, main = "ROC Curve for GLM", col = "blue")
+
+# Calculate AUC
+auc_value <- auc(roc_obj)
+cat("AUC (Area Under the Curve):", round(auc_value, 3), "\n")
+```
+
+## Advanced Model Development and Training
+
+### Data Preparation for Advanced Modeling
+
+```{r advanced_setup}
+# Load required libraries
+library(caret)
+library(randomForest)
+library(pROC)
+library(ggplot2)
+library(dplyr)
+library(VIM)
+library(mlbench)
+
+# Handle missing values (biologically implausible zeros) - if not already done
+pima_clean <- pima_data
+pima_clean$glucose[pima_clean$glucose == 0] <- NA
+pima_clean$pressure[pima_clean$pressure == 0] <- NA
+pima_clean$mass[pima_clean$mass == 0] <- NA
+
+# Perform KNN imputation
+pima_imputed <- kNN(pima_clean, k = 5)
+pima_imputed <- pima_imputed[, 1:9]
+
+# Convert diabetes to factor
+pima_imputed$diabetes <- as.factor(pima_imputed$diabetes)
+
+# Create interaction terms
+pima_imputed$glucose_mass <- pima_imputed$glucose * pima_imputed$mass
+pima_imputed$glucose_age <- pima_imputed$glucose * pima_imputed$age
+pima_imputed$mass_age <- pima_imputed$mass * pima_imputed$age
+
+# Create categorical variables
+pima_imputed$age_group <- cut(pima_imputed$age, 
+                              breaks = c(0, 30, 45, 60, 100), 
+                              labels = c("Young", "Middle", "Senior", "Elderly"))
+
+pima_imputed$glucose_group <- cut(pima_imputed$glucose, 
+                                  breaks = c(0, 100, 126, 200, 1000), 
+                                  labels = c("Normal", "Prediabetes", "Diabetes", "High"))
+
+pima_imputed$mass_group <- cut(pima_imputed$mass, 
+                               breaks = c(0, 18.5, 25, 30, 100), 
+                               labels = c("Underweight", "Normal", "Overweight", "Obese"))
+
+# Convert categorical variables to numeric for modeling
+pima_imputed$age_group_num <- as.numeric(pima_imputed$age_group)
+pima_imputed$glucose_group_num <- as.numeric(pima_imputed$glucose_group)
+pima_imputed$mass_group_num <- as.numeric(pima_imputed$mass_group)
+
+# Remove original categorical columns to keep dataset clean
+pima_imputed <- pima_imputed[, !colnames(pima_imputed) %in% 
+                             c("age_group", "glucose_group", "mass_group")]
+
+cat("Total columns after feature engineering:", ncol(pima_imputed), "\n")
+```
+
+### Advanced Data Splitting
+
+```{r advanced_splitting}
+# Set seed for reproducibility
+set.seed(123)
+
+# Split data: 70% training, 15% validation, 15% test
+train_index <- createDataPartition(pima_imputed$diabetes, p = 0.7, list = FALSE)
+train_data <- pima_imputed[train_index, ]
+temp_data <- pima_imputed[-train_index, ]
+
+val_index <- createDataPartition(temp_data$diabetes, p = 0.5, list = FALSE)
+val_data <- temp_data[val_index, ]
+test_data <- temp_data[-val_index, ]
+
+# Check split sizes and class distribution
+cat("Training set size:", nrow(train_data), "\n")
+cat("Validation set size:", nrow(val_data), "\n")
+cat("Test set size:", nrow(test_data), "\n")
+
+cat("\nClass distribution in training set:\n")
+print(table(train_data$diabetes))
+cat("\nClass distribution in validation set:\n")
+print(table(val_data$diabetes))
+cat("\nClass distribution in test set:\n")
+print(table(test_data$diabetes))
+```
+
+### Feature Scaling
+
+```{r advanced_scaling}
+# Identify numerical features (excluding target)
+numerical_features <- c("pregnant", "glucose", "pressure", "triceps", 
+                       "insulin", "mass", "pedigree", "age",
+                       "glucose_mass", "glucose_age", "mass_age",
+                       "age_group_num", "glucose_group_num", "mass_group_num")
+
+# Calculate scaling parameters from training data
+preprocess_params <- preProcess(train_data[, numerical_features], 
+                               method = c("center", "scale"))
+
+# Apply scaling to all datasets
+train_scaled <- train_data
+val_scaled <- val_data
+test_scaled <- test_data
+
+train_scaled[, numerical_features] <- predict(preprocess_params, train_data[, numerical_features])
+val_scaled[, numerical_features] <- predict(preprocess_params, val_data[, numerical_features])
+test_scaled[, numerical_features] <- predict(preprocess_params, test_data[, numerical_features])
+```
+
+### Advanced Model Training
+
+```{r advanced_training}
+# Set up cross-validation control
+ctrl <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = TRUE
+)
+
+# 1. Logistic Regression
+set.seed(123)
+lr_model <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "glm",
+  trControl = ctrl,
+  metric = "ROC"
+)
+
+# 2. Random Forest
+set.seed(123)
+rf_model <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "rf",
+  trControl = ctrl,
+  metric = "ROC",
+  tuneLength = 3
+)
+
+# 3. XGBoost (Simplified version)
+set.seed(123)
+xgb_model <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "xgbTree",
+  trControl = ctrl,
+  metric = "ROC",
+  tuneLength = 3,  # Reduced tuning
+  verbose = FALSE  # Reduce output
+)
+```
+
+### Model Comparison
+
+```{r advanced_comparison}
+# Compare model performances
+models <- list(
+  "Logistic Regression" = lr_model,
+  "Random Forest" = rf_model,
+  "XGBoost" = xgb_model
+)
+
+# Extract results
+results <- resamples(models)
+summary(results)
+
+# Plot comparison
+bwplot(results, metric = "ROC")
+dotplot(results, metric = "ROC")
+```
+
+### Hyperparameter Tuning
+
+```{r advanced_tuning}
+# Random Forest with detailed tuning
+rf_grid <- expand.grid(
+  mtry = c(2, 3, 4, 5, 6, 7, 8)
+)
+
+set.seed(123)
+rf_tuned <- train(
+  diabetes ~ .,
+  data = train_scaled,
+  method = "rf",
+  trControl = ctrl,
+  metric = "ROC",
+  tuneGrid = rf_grid
+)
+```
+
+### Advanced Model Evaluation
+
+```{r advanced_evaluation}
+# Function to evaluate model performance
+evaluate_model <- function(model, test_data, model_name) {
+  # Make predictions
+  predictions <- predict(model, test_data, type = "prob")
+  predicted_class <- predict(model, test_data)
+  
+  # Get the positive class name
+  positive_class <- levels(test_data$diabetes)[2]  # Second level is usually positive
+  
+  # Calculate metrics
+  cm <- confusionMatrix(predicted_class, test_data$diabetes, positive = positive_class)
+  
+  # Use the correct probability column name
+  if (positive_class %in% colnames(predictions)) {
+    roc_obj <- roc(test_data$diabetes, predictions[[positive_class]])
+  } else {
+    # Use the second column (usually the positive class)
+    roc_obj <- roc(test_data$diabetes, predictions[, 2])
+  }
+  auc_score <- auc(roc_obj)
+  
+  # Return results
+  results <- list(
+    model_name = model_name,
+    accuracy = cm$overall["Accuracy"],
+    sensitivity = cm$byClass["Sensitivity"],
+    specificity = cm$byClass["Specificity"],
+    precision = cm$byClass["Precision"],
+    f1_score = cm$byClass["F1"],
+    auc = auc_score,
+    confusion_matrix = cm,
+    roc_obj = roc_obj
+  )
+  
+  return(results)
+}
+
+# Evaluate working models on validation set
+validation_results <- list()
+
+validation_results$lr <- evaluate_model(lr_model, val_scaled, "Logistic Regression")
+validation_results$rf <- evaluate_model(rf_tuned, val_scaled, "Random Forest")
+validation_results$xgb <- evaluate_model(xgb_model, val_scaled, "XGBoost")
+
+# Create comparison table
+comparison_table <- data.frame(
+  Model = sapply(validation_results, function(x) x$model_name),
+  Accuracy = sapply(validation_results, function(x) x$accuracy),
+  Sensitivity = sapply(validation_results, function(x) x$sensitivity),
+  Specificity = sapply(validation_results, function(x) x$specificity),
+  Precision = sapply(validation_results, function(x) x$precision),
+  F1_Score = sapply(validation_results, function(x) x$f1_score),
+  AUC = sapply(validation_results, function(x) x$auc)
+)
+
+print(comparison_table)
+```
+
+### ROC Curves
+
+```{r advanced_roc}
+# Plot ROC curves (only working models)
+plot(validation_results$lr$roc_obj, col = "blue", main = "ROC Curves Comparison")
+plot(validation_results$rf$roc_obj, col = "red", add = TRUE)
+plot(validation_results$xgb$roc_obj, col = "purple", add = TRUE)
+legend("bottomright", 
+       legend = c("Logistic Regression", "Random Forest", "XGBoost"),
+       col = c("blue", "red", "purple"), 
+       lty = 1)
+```
+
+### Feature Importance
+
+```{r advanced_importance}
+# Feature importance for Random Forest
+rf_importance <- varImp(rf_tuned)
+plot(rf_importance, main = "Feature Importance - Random Forest")
+
+# Feature importance for XGBoost
+xgb_importance <- varImp(xgb_model)
+plot(xgb_importance, main = "Feature Importance - XGBoost")
+
+# Print importance scores
+print(rf_importance)
+print(xgb_importance)
+```
+
+### Final Model Selection
+
+```{r advanced_final}
+# Select best model based on validation performance
+best_model_name <- comparison_table$Model[which.max(comparison_table$AUC)]
+cat("Best model based on AUC:", best_model_name, "\n")
+
+# Get the best model
+if (best_model_name == "Logistic Regression") {
+  best_model <- lr_model
+} else if (best_model_name == "Random Forest") {
+  best_model <- rf_tuned
+} else if (best_model_name == "XGBoost") {
+  best_model <- xgb_model
+}
+
+# Evaluate best model on test set
+final_results <- evaluate_model(best_model, test_scaled, paste("Best Model:", best_model_name))
+
+cat("\nFinal Test Set Results:\n")
+cat("Accuracy:", round(final_results$accuracy, 4), "\n")
+cat("Sensitivity:", round(final_results$sensitivity, 4), "\n")
+cat("Specificity:", round(final_results$specificity, 4), "\n")
+cat("Precision:", round(final_results$precision, 4), "\n")
+cat("F1 Score:", round(final_results$f1_score, 4), "\n")
+cat("AUC:", round(final_results$auc, 4), "\n")
+
+# Final confusion matrix
+print(final_results$confusion_matrix)
+```
+
+### Model Interpretation
+
+```{r advanced_interpretation}
+# For logistic regression, show coefficients
+if (best_model_name == "Logistic Regression") {
+  coef_summary <- summary(best_model)$coefficients
+  print("Logistic Regression Coefficients:")
+  print(coef_summary)
+  
+  # Calculate odds ratios
+  odds_ratios <- exp(coef_summary[, "Estimate"])
+  
+  # Calculate confidence intervals manually (since confint doesn't work with caret objects)
+  std_errors <- coef_summary[, "Std. Error"]
+  z_value <- 1.96  # 95% confidence interval
+  
+  lower_ci <- exp(coef_summary[, "Estimate"] - z_value * std_errors)
+  upper_ci <- exp(coef_summary[, "Estimate"] + z_value * std_errors)
+  
+  odds_table <- data.frame(
+    Feature = rownames(coef_summary),
+    Coefficient = coef_summary[, "Estimate"],
+    Odds_Ratio = odds_ratios,
+    Lower_CI = lower_ci,
+    Upper_CI = upper_ci,
+    P_value = coef_summary[, "Pr(>|z|)"]
+  )
+  
+  print("Odds Ratios and Confidence Intervals:")
+  print(odds_table)
+}
+```
+
+### Summary and Conclusions
+
+```{r advanced_summary}
+# Summary statistics
+cat("Pima Indians Diabetes Dataset Summary:\n")
+cat("Total samples:", nrow(pima_imputed), "\n")
+cat("Diabetes prevalence:", round(mean(pima_imputed$diabetes == "tested_positive"), 3), "\n")
+cat("Class imbalance ratio:", round(sum(pima_imputed$diabetes == "tested_negative") / sum(pima_imputed$diabetes == "tested_positive"), 2), ":1\n")
+
+cat("\nKey Findings:\n")
+
+# Handle feature importance for different model types
+if (best_model_name == "Logistic Regression") {
+  # For logistic regression, use coefficients
+  coef_importance <- abs(summary(best_model)$coefficients[, "Estimate"])
+  top_features <- names(sort(coef_importance, decreasing = TRUE)[1:5])
+  cat("1. Most important features:", paste(top_features, collapse = ", "), "\n")
+} else {
+  # For Random Forest, use variable importance
+  tryCatch({
+    rf_importance <- varImp(best_model)$importance
+    # Extract the importance values as a vector
+    if (is.data.frame(rf_importance)) {
+      importance_values <- rf_importance[, 1]
+    } else {
+      importance_values <- as.numeric(rf_importance)
+    }
+    # Get feature names
+    if (is.data.frame(rf_importance)) {
+      feature_names <- rownames(rf_importance)
+    } else {
+      feature_names <- names(rf_importance)
+    }
+    # Sort and get top 5
+    sorted_indices <- order(importance_values, decreasing = TRUE)
+    top_features <- feature_names[sorted_indices[1:5]]
+    cat("1. Most important features:", paste(top_features, collapse = ", "), "\n")
+  }, error = function(e) {
+    cat("1. Most important features: Unable to extract (using Random Forest)\n")
+  })
+}
+
+cat("2. Best performing model:", best_model_name, "\n")
+cat("3. Final AUC on test set:", round(final_results$auc, 4), "\n")
+cat("4. Model sensitivity:", round(final_results$sensitivity, 4), "\n")
+cat("5. Model specificity:", round(final_results$specificity, 4), "\n")
+
+cat("\nComparison with Literature:\n")
+cat("The Pima Indians Diabetes dataset is a classic benchmark in diabetes prediction.\n")
+cat("Our results can be compared with numerous studies that have used this dataset.\n")
+cat("Typical AUC scores range from 0.70 to 0.85 depending on the methodology used.\n")
+```
+
