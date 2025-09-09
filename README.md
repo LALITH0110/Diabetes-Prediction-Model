@@ -1,5 +1,5 @@
-# CSP-571-Summer
-This project focuses on building interpretable and reliable models for predicting diabetes using structured health data. We integrate multiple datasets — including the Diabetes Prediction Dataset from Kaggle, the Pima Indians Diabetes Dataset — to explore key risk factors and develop robust machine learning models.
+# Diabetes Prediction Model
+This project focuses on building interpretable and reliable models for predicting diabetes using structured health data. We integrate multiple datasets — including the Diabetes Prediction Dataset from Kaggle, the Pima Indians Diabetes Dataset-to explore key risk factors and develop robust machine learning models.
 
 
 ## Overview of `diabetes_prediction_dataset.Rmd`
@@ -32,8 +32,6 @@ This file focuses on preprocessing, exploring, and modeling the **Pima Indians D
 
 ## Project File Descriptions
 
-* **CSP-571\_summer\_presentation.mp4**
-  A recorded project presentation video. Summarizes the objectives, datasets, methodology, model comparisons, evaluation metrics, and key findings in a concise and visual format.
 
 * **Pima\_Indians\_Diabetes.Rmd**
   R Markdown file for processing and analyzing the Pima Indians Diabetes Dataset. Includes data cleaning, feature engineering, exploratory data analysis, multiple model training (GLM, Random Forest, XGBoost), evaluation, and interpretation.
@@ -46,4 +44,5 @@ This file focuses on preprocessing, exploring, and modeling the **Pima Indians D
 
 * **extra.Rmd**
   An additional R Markdown file containing supplementary analyses beyond the main two datasets. Includes Principal Component Analysis (PCA) for dimensionality reduction and clustering analysis to explore hidden patterns and groupings in the data.
+
 
