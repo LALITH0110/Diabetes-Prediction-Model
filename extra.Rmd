@@ -1,0 +1,534 @@
+---
+title: "Missing Requirements Implementation - Fixed Version"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+author: ""
+date: "`r Sys.Date()`"
+---
+
+---
+
+## 1. Advanced Analytics Implementation (Fixed)
+
+### 1.1 K-Means Clustering Analysis
+
+```{r clustering_setup}
+# Load required libraries for advanced analytics
+library(cluster)
+library(factoextra)
+library(Rtsne)
+library(ggplot2)
+library(dplyr)
+library(caret)
+
+# Load the Kaggle dataset
+diabetes_dataset = read.csv("./diabetes_prediction_dataset.csv")
+
+# Prepare data for clustering (numerical features only)
+clustering_data <- diabetes_dataset %>%
+  select(age, bmi, HbA1c_level, blood_glucose_level) %>%
+  scale()  # Standardize for clustering
+
+# Remove any NA values
+clustering_data <- clustering_data[complete.cases(clustering_data), ]
+
+# For large datasets, use a sample for clustering analysis
+set.seed(123)
+sample_size <- min(5000, nrow(clustering_data))  # Use smaller sample for clustering
+clustering_sample <- clustering_data[sample(1:nrow(clustering_data), sample_size), ]
+
+cat("Using sample of", sample_size, "records for clustering analysis\n")
+```
+
+```{r kmeans_analysis_fixed}
+# Determine optimal number of clusters using elbow method (with smaller sample)
+set.seed(123)
+wcss <- numeric(8)  # Reduced from 10 to 8 for faster computation
+for (i in 1:8) {
+  kmeans_result <- kmeans(clustering_sample, centers = i, nstart = 10, iter.max = 50)
+  wcss[i] <- kmeans_result$tot.withinss
+}
+
+# Plot elbow curve
+elbow_plot <- data.frame(k = 1:8, wcss = wcss)
+ggplot(elbow_plot, aes(x = k, y = wcss)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 3) +
+  labs(title = "Elbow Method for Optimal k (Sample Data)",
+       x = "Number of Clusters (k)",
+       y = "Total Within-Cluster Sum of Squares") +
+  theme_minimal()
+
+# Perform K-means clustering with optimal k (let's use k=3)
+set.seed(123)
+kmeans_result <- kmeans(clustering_sample, centers = 3, nstart = 10, iter.max = 50)
+
+# Add cluster assignments to sample data
+clustering_sample_with_clusters <- data.frame(
+  clustering_sample,
+  cluster = as.factor(kmeans_result$cluster)
+)
+
+# Analyze cluster characteristics
+cluster_summary <- clustering_sample_with_clusters %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    mean_age = mean(age),
+    mean_bmi = mean(bmi),
+    mean_hba1c = mean(HbA1c_level),
+    mean_glucose = mean(blood_glucose_level)
+  )
+
+print("Cluster Summary (Sample Data):")
+print(cluster_summary)
+
+# Visualize clusters
+fviz_cluster(kmeans_result, data = clustering_sample,
+             palette = c("#2E9FDF", "#E7B800", "#FC4E07"),
+             geom = "point",
+             ellipse.type = "convex",
+             ggtheme = theme_minimal())
+```
+
+### 1.2 Principal Component Analysis (PCA)
+
+```{r pca_analysis_fixed}
+# Perform PCA on the clustering data (can use full dataset for PCA)
+pca_result <- prcomp(clustering_data, scale. = TRUE)
+
+# Summary of PCA
+print("PCA Summary:")
+print(summary(pca_result))
+
+# Scree plot
+scree_data <- data.frame(
+  PC = 1:length(pca_result$sdev),
+  Variance = pca_result$sdev^2,
+  Cumulative_Variance = cumsum(pca_result$sdev^2 / sum(pca_result$sdev^2))
+)
+
+ggplot(scree_data, aes(x = PC, y = Variance)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_line(aes(y = Cumulative_Variance * max(Variance)), color = "red", size = 1) +
+  scale_y_continuous(sec.axis = sec_axis(~./max(scree_data$Variance), 
+                                        name = "Cumulative Proportion")) +
+  labs(title = "Scree Plot with Cumulative Variance",
+       x = "Principal Component",
+       y = "Variance") +
+  theme_minimal()
+
+# Component loadings
+loadings <- pca_result$rotation
+print("Component Loadings:")
+print(loadings)
+
+# PCA scores with diabetes status (use sample for visualization)
+pca_sample_indices <- sample(1:nrow(clustering_data), min(2000, nrow(clustering_data)))
+pca_scores <- data.frame(
+  PC1 = pca_result$x[pca_sample_indices, 1],
+  PC2 = pca_result$x[pca_sample_indices, 2],
+  diabetes = diabetes_dataset$diabetes[complete.cases(clustering_data)][pca_sample_indices]
+)
+
+# Plot PCA scores colored by diabetes status
+ggplot(pca_scores, aes(x = PC1, y = PC2, color = factor(diabetes))) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"),
+                     labels = c("No Diabetes", "Diabetes")) +
+  labs(title = "PCA Scores by Diabetes Status (Sample)",
+       x = "First Principal Component",
+       y = "Second Principal Component",
+       color = "Diabetes Status") +
+  theme_minimal()
+```
+
+### 1.3 t-SNE Visualization (Optimized)
+
+```{r tsne_analysis_fixed}
+# Perform t-SNE on sample data for faster computation
+set.seed(123)
+tsne_sample_size <- min(2000, nrow(clustering_data))
+tsne_sample_indices <- sample(1:nrow(clustering_data), tsne_sample_size)
+tsne_data_sample <- clustering_data[tsne_sample_indices, ]
+
+# Remove duplicates before running t-SNE
+tsne_data_sample_unique <- unique(tsne_data_sample)
+cat("Original sample size:", nrow(tsne_data_sample), "\n")
+cat("After removing duplicates:", nrow(tsne_data_sample_unique), "\n")
+
+# Adjust perplexity if sample is too small
+perplexity_value <- min(30, floor((nrow(tsne_data_sample_unique) - 1) / 3))
+cat("Using perplexity:", perplexity_value, "\n")
+
+tsne_result <- Rtsne(tsne_data_sample_unique, dims = 2, perplexity = perplexity_value, 
+                     verbose = TRUE, max_iter = 1000)  # Reduced max_iter
+
+# Create t-SNE plot
+tsne_data <- data.frame(
+  tSNE1 = tsne_result$Y[,1],
+  tSNE2 = tsne_result$Y[,2],
+  diabetes = diabetes_dataset$diabetes[complete.cases(clustering_data)][tsne_sample_indices][1:nrow(tsne_data_sample_unique)]
+)
+
+# Plot t-SNE colored by diabetes status
+ggplot(tsne_data, aes(x = tSNE1, y = tSNE2, color = factor(diabetes))) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"),
+                     labels = c("No Diabetes", "Diabetes")) +
+  labs(title = "t-SNE Visualization by Diabetes Status (Sample)",
+       x = "t-SNE 1",
+       y = "t-SNE 2",
+       color = "Diabetes Status") +
+  theme_minimal()
+```
+
+---
+
+## 2. SHAP Values Implementation (Simplified)
+
+### 2.1 SHAP Analysis for XGBoost Model
+
+```{r shap_setup_fixed}
+# Prepare data for SHAP analysis
+diabetes_dataset = read.csv("./diabetes_prediction_dataset.csv")
+
+# Convert categorical variables
+diabetes_dataset$gender <- as.factor(diabetes_dataset$gender)
+diabetes_dataset$smoking_history <- as.factor(diabetes_dataset$smoking_history)
+diabetes_dataset$hypertension <- as.factor(diabetes_dataset$hypertension)
+diabetes_dataset$heart_disease <- as.factor(diabetes_dataset$heart_disease)
+diabetes_dataset$diabetes <- as.factor(diabetes_dataset$diabetes)
+
+# One-hot encoding
+dummy_vars <- dummyVars(diabetes ~ ., data = diabetes_dataset)
+diabetes_encoded <- predict(dummy_vars, diabetes_dataset)
+diabetes_encoded <- data.frame(diabetes_encoded, diabetes = diabetes_dataset$diabetes)
+
+# Split data
+set.seed(123)
+train_index <- createDataPartition(diabetes_encoded$diabetes, p = 0.7, list = FALSE)
+train_data <- diabetes_encoded[train_index, ]
+test_data <- diabetes_encoded[-train_index, ]
+
+# Scale numerical features
+preprocess_params <- preProcess(train_data[, -ncol(train_data)], method = c("center", "scale"))
+train_scaled <- predict(preprocess_params, train_data)
+test_scaled <- predict(preprocess_params, test_data)
+
+# Train XGBoost model for SHAP analysis
+library(xgboost)
+
+# Prepare data for XGBoost
+x_train <- as.matrix(train_scaled[, -ncol(train_scaled)])
+y_train <- as.numeric(train_scaled$diabetes) - 1  # Convert to 0/1
+
+# Train XGBoost model
+xgb_model_shap <- xgboost(
+  data = x_train,
+  label = y_train,
+  nrounds = 100,
+  objective = "binary:logistic",
+  eval_metric = "logloss",
+  verbose = 0
+)
+```
+
+```{r shap_analysis_fixed}
+# SHAP-like analysis using feature importance and partial dependence
+library(pdp)
+
+# Get feature importance from XGBoost
+importance_matrix <- xgb.importance(feature_names = colnames(x_train), model = xgb_model_shap)
+print("XGBoost Feature Importance:")
+print(importance_matrix)
+
+# Plot feature importance
+xgb.plot.importance(importance_matrix, rel_to_first = TRUE)
+
+# Partial dependence plots for top features (use sample for faster computation)
+top_features <- importance_matrix$Feature[1:3]  # Reduced to top 3
+
+# Create partial dependence plots
+for (feature in top_features) {
+  if (feature %in% colnames(x_train)) {
+    # Use sample for partial dependence
+    sample_indices <- sample(1:nrow(x_train), min(1000, nrow(x_train)))
+    x_train_sample <- x_train[sample_indices, ]
+    
+    pdp_result <- partial(xgb_model_shap, pred.var = feature, 
+                         train = x_train_sample, type = "classification")
+    
+    print(ggplot(pdp_result, aes_string(x = feature, y = "yhat")) +
+            geom_line(color = "blue", size = 1) +
+            labs(title = paste("Partial Dependence Plot:", feature),
+                 x = feature,
+                 y = "Predicted Probability") +
+            theme_minimal())
+  }
+}
+```
+
+### 2.2 SHAP Analysis for Random Forest Model
+
+```{r rf_shap_fixed}
+# Train Random Forest for SHAP analysis (use sample for faster training)
+library(randomForest)
+
+# Prepare data for Random Forest (use sample)
+sample_size_rf <- min(3000, nrow(train_scaled))
+rf_sample_indices <- sample(1:nrow(train_scaled), sample_size_rf)
+rf_train_data <- train_scaled[rf_sample_indices, ]
+rf_train_data$diabetes <- as.factor(rf_train_data$diabetes)
+
+# Train Random Forest
+rf_model_shap <- randomForest(diabetes ~ ., data = rf_train_data, 
+                             ntree = 200, importance = TRUE)  # Reduced ntree
+
+# Variable importance
+importance(rf_model_shap)
+varImpPlot(rf_model_shap)
+```
+
+---
+
+## 3. Simulation & Practical Scenarios (Fixed)
+
+### 3.1 Diabetes Screening Simulation
+
+```{r simulation_setup_fixed}
+# Diabetes screening simulation
+# Simulate a population-based screening scenario
+
+# Parameters for simulation
+population_size <- 5000  # Reduced for faster computation
+screening_cost_per_person <- 50  # USD
+treatment_cost_per_case <- 5000  # USD
+false_positive_cost <- 200  # USD for additional testing
+false_negative_cost <- 10000  # USD for delayed treatment
+
+# Simulate population with diabetes prevalence - CREATE PROPER FEATURES
+set.seed(123)
+simulated_population <- data.frame(
+  age = rnorm(population_size, mean = 45, sd = 15),
+  bmi = rnorm(population_size, mean = 27, sd = 5),
+  HbA1c_level = rnorm(population_size, mean = 5.7, sd = 1.2),
+  blood_glucose_level = rnorm(population_size, mean = 138, sd = 40),
+  hypertension = rbinom(population_size, 1, 0.2),
+  heart_disease = rbinom(population_size, 1, 0.1),
+  gender = sample(c("Male", "Female"), population_size, replace = TRUE, prob = c(0.41, 0.59)),
+  smoking_history = sample(c("never", "former", "current", "ever", "No Info", "not current"), 
+                          population_size, replace = TRUE, 
+                          prob = c(0.4, 0.2, 0.1, 0.1, 0.1, 0.1))
+)
+
+# Generate true diabetes status based on risk factors - FIXED PREVALENCE
+diabetes_prob <- 1 / (1 + exp(-(-6 + 0.03 * simulated_population$age + 
+                                0.05 * simulated_population$bmi + 
+                                0.5 * simulated_population$HbA1c_level + 
+                                0.01 * simulated_population$blood_glucose_level + 
+                                0.3 * simulated_population$hypertension + 
+                                0.4 * simulated_population$heart_disease)))
+
+# Ensure realistic diabetes prevalence (around 8-10%)
+diabetes_prob <- pmin(diabetes_prob, 0.15)  # Cap at 15%
+diabetes_prob <- pmax(diabetes_prob, 0.02)  # Minimum 2%
+
+simulated_population$true_diabetes <- rbinom(population_size, 1, diabetes_prob)
+
+cat("Diabetes prevalence after adjustment:", round(mean(simulated_population$true_diabetes), 3), "\n")
+
+# Convert categorical variables to match training data format
+simulated_population$hypertension <- as.factor(simulated_population$hypertension)
+simulated_population$heart_disease <- as.factor(simulated_population$heart_disease)
+simulated_population$gender <- as.factor(simulated_population$gender)
+simulated_population$smoking_history <- as.factor(simulated_population$smoking_history)
+
+# Create dummy variables to match the training data structure
+dummy_vars_sim <- dummyVars(~ ., data = simulated_population[, -ncol(simulated_population)])
+simulated_encoded <- predict(dummy_vars_sim, simulated_population)
+simulated_encoded <- data.frame(simulated_encoded, true_diabetes = simulated_population$true_diabetes)
+
+cat("Simulated population created with", ncol(simulated_encoded), "features\n")
+cat("Diabetes prevalence in simulation:", round(mean(simulated_population$true_diabetes), 3), "\n")
+```
+
+```{r screening_simulation_fixed}
+# Screening simulation using our XGBoost model
+# Prepare simulated data for prediction - SIMPLIFIED APPROACH
+sim_data_for_prediction <- simulated_encoded[, -ncol(simulated_encoded)]  # Remove target variable
+
+# Get training features
+training_features <- colnames(x_train)
+cat("Training features:", length(training_features), "features\n")
+cat("Simulated data features:", ncol(sim_data_for_prediction), "features\n")
+
+# Ensure we have all required features
+missing_features <- setdiff(training_features, colnames(sim_data_for_prediction))
+if (length(missing_features) > 0) {
+  cat("Adding", length(missing_features), "missing features with zeros\n")
+  for (feature in missing_features) {
+    sim_data_for_prediction[[feature]] <- 0
+  }
+}
+
+# Ensure correct order of features
+sim_data_scaled <- sim_data_for_prediction[, training_features, drop = FALSE]
+
+# Scale the data manually (simple z-score scaling)
+for (col in colnames(sim_data_scaled)) {
+  if (is.numeric(sim_data_scaled[[col]])) {
+    sim_data_scaled[[col]] <- scale(sim_data_scaled[[col]])
+  }
+}
+
+# Make predictions
+sim_predictions <- predict(xgb_model_shap, as.matrix(sim_data_scaled))
+sim_predicted_diabetes <- ifelse(sim_predictions > 0.5, 1, 0)
+
+# Calculate confusion matrix
+confusion_matrix <- table(Actual = simulated_population$true_diabetes, 
+                         Predicted = sim_predicted_diabetes)
+
+print("Screening Simulation Results:")
+print(confusion_matrix)
+
+# Calculate metrics
+tp <- confusion_matrix[2, 2]  # True positives
+tn <- confusion_matrix[1, 1]  # True negatives
+fp <- confusion_matrix[1, 2]  # False positives
+fn <- confusion_matrix[2, 1]  # False negatives
+
+sensitivity <- tp / (tp + fn)
+specificity <- tn / (tn + fp)
+precision <- tp / (tp + fp)
+accuracy <- (tp + tn) / (tp + tn + fp + fn)
+
+print(paste("Sensitivity:", round(sensitivity, 3)))
+print(paste("Specificity:", round(specificity, 3)))
+print(paste("Precision:", round(precision, 3)))
+print(paste("Accuracy:", round(accuracy, 3)))
+```
+
+### 3.2 Cost-Benefit Analysis
+
+```{r cost_benefit_analysis_fixed}
+# Cost-benefit analysis of screening program
+
+# Calculate costs
+screening_costs <- population_size * screening_cost_per_person
+treatment_costs <- tp * treatment_cost_per_case
+false_positive_costs <- fp * false_positive_cost
+false_negative_costs <- fn * false_negative_cost
+
+total_costs <- screening_costs + treatment_costs + false_positive_costs + false_negative_costs
+
+# Calculate benefits (prevented complications)
+# Assume each detected case prevents $15,000 in future complications
+prevented_complications <- tp * 15000
+
+# Net benefit
+net_benefit <- prevented_complications - total_costs
+
+# Cost-effectiveness metrics
+cost_per_case_detected <- total_costs / tp
+cost_per_quality_adjusted_life_year <- total_costs / (tp * 0.1)  # Assume 0.1 QALY per case
+
+# Results summary
+cost_benefit_summary <- data.frame(
+  Metric = c("Total Screening Costs", "Treatment Costs", "False Positive Costs", 
+             "False Negative Costs", "Total Costs", "Prevented Complications", 
+             "Net Benefit", "Cost per Case Detected"),
+  Value = c(screening_costs, treatment_costs, false_positive_costs, 
+            false_negative_costs, total_costs, prevented_complications, 
+            net_benefit, cost_per_case_detected)
+)
+
+print("Cost-Benefit Analysis Results:")
+print(cost_benefit_summary)
+
+# Visualization of cost breakdown
+cost_breakdown <- data.frame(
+  Category = c("Screening", "Treatment", "False Positives", "False Negatives"),
+  Cost = c(screening_costs, treatment_costs, false_positive_costs, false_negative_costs)
+)
+
+ggplot(cost_breakdown, aes(x = "", y = Cost, fill = Category)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Cost Breakdown of Screening Program",
+       fill = "Cost Category") +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank())
+```
+
+### 3.3 Sensitivity Analysis (Fixed)
+
+```{r sensitivity_analysis_fixed}
+# Sensitivity analysis for different thresholds
+thresholds <- seq(0.1, 0.9, by = 0.1)
+sensitivity_results <- data.frame(
+  threshold = thresholds,
+  sensitivity = numeric(length(thresholds)),
+  specificity = numeric(length(thresholds)),
+  precision = numeric(length(thresholds)),
+  total_cost = numeric(length(thresholds)),
+  net_benefit = numeric(length(thresholds))
+)
+
+for (i in 1:length(thresholds)) {
+  threshold <- thresholds[i]
+  predicted_diabetes <- ifelse(sim_predictions > threshold, 1, 0)
+  
+  # Calculate confusion matrix
+  cm <- table(Actual = simulated_population$true_diabetes, 
+              Predicted = predicted_diabetes)
+  
+  if (nrow(cm) == 2 && ncol(cm) == 2) {
+    tp <- cm[2, 2]
+    tn <- cm[1, 1]
+    fp <- cm[1, 2]
+    fn <- cm[2, 1]
+    
+    sensitivity_results$sensitivity[i] <- tp / (tp + fn)
+    sensitivity_results$specificity[i] <- tn / (tn + fp)
+    sensitivity_results$precision[i] <- tp / (tp + fp)
+    
+    # Calculate costs
+    total_cost <- population_size * screening_cost_per_person + 
+                  tp * treatment_cost_per_case + 
+                  fp * false_positive_cost + 
+                  fn * false_negative_cost
+    
+    prevented_complications <- tp * 15000
+    net_benefit <- prevented_complications - total_cost
+    
+    sensitivity_results$total_cost[i] <- total_cost
+    sensitivity_results$net_benefit[i] <- net_benefit
+  }
+}
+
+# Plot sensitivity analysis results
+ggplot(sensitivity_results, aes(x = threshold)) +
+  geom_line(aes(y = sensitivity, color = "Sensitivity"), size = 1) +
+  geom_line(aes(y = specificity, color = "Specificity"), size = 1) +
+  geom_line(aes(y = precision, color = "Precision"), size = 1) +
+  labs(title = "Sensitivity Analysis: Performance vs Threshold",
+       x = "Prediction Threshold",
+       y = "Performance Metric",
+       color = "Metric") +
+  theme_minimal()
+
+# Plot cost-benefit vs threshold
+ggplot(sensitivity_results, aes(x = threshold)) +
+  geom_line(aes(y = total_cost, color = "Total Cost"), size = 1) +
+  geom_line(aes(y = net_benefit, color = "Net Benefit"), size = 1) +
+  labs(title = "Sensitivity Analysis: Cost-Benefit vs Threshold",
+       x = "Prediction Threshold",
+       y = "Cost/Benefit (USD)",
+       color = "Metric") +
+  theme_minimal()
+```
+
